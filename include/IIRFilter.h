@@ -1,18 +1,22 @@
 #pragma once
 
 #include <CascadeFilter.h>
-#include <cmath>
-#include <iostream>
+
 #include <complex>
 
 namespace fast_iir {
 
-struct PoleZeroConjugatePair {
+enum class FilterPassType {
+    LOW_PASS,
+    HIGH_PASS,
+};
+
+struct PoleZeroPair {
     std::complex<double> pole;
     std::complex<double> zero;
 };
 
-template<size_t N, typename T = double>
+template<size_t N, typename T = double, FilterPassType PASS_TYPE = FilterPassType::LOW_PASS>
 class IIRFilterLPF {
 public:
     virtual ~IIRFilterLPF() = default;
@@ -21,74 +25,88 @@ public:
         return _cascade_filter;
     }
 
-    virtual PoleZeroConjugatePair get_pole_zero_pairs_s_plane(unsigned int i) = 0;
+    virtual PoleZeroPair get_pole_zero_pairs_s_plane(unsigned int i) = 0;
+
+    virtual PoleZeroPair get_pole_zero_real_axis() = 0;
 
 protected:
-    std::complex<double> transform(std::complex<double> s) {
-        if (s.real() != INFINITY_VALUE) {
-            return -(s + 1.0) / (s - 1.0);
-        } else {
-            return {-1, 0};
-        }
-    }
-
     void configure_poles_zeros(double normalized_cutoff_frequency) {
-        _wn_warped = std::tan((M_PI * normalized_cutoff_frequency) / 2);
-
-        for (int i = 0; i < (N + 1) / 2; ++i) {
-            PoleZeroConjugatePair pole_zero_pair = get_pole_zero_pairs_s_plane(i);
-            std::cout << "i: " << i << std::endl;
-            std::cout << "pole: " << pole_zero_pair.pole << std::endl;
-            std::cout << "zero: " << pole_zero_pair.zero << std::endl;
-
-            const std::complex<double> &pole_s = _wn_warped * pole_zero_pair.pole;
-            const std::complex<double> &zero_s = _wn_warped * pole_zero_pair.zero;
-
-            const std::complex<double> pole_z = transform(pole_s);
-            const std::complex<double> zero_z = transform(zero_s);
-
-            double b0, b1, b2, a1, a2;
-
-            constexpr bool ODD_ORDER = (N & 1);
-            if constexpr (ODD_ORDER) {
-                if (i != N / 2) {
-                    _gain *= (1.0 - pole_z);
-                    _gain *= (1.0 - std::conj(pole_z));
-
-                    b0 = 1;
-                    b1 = -2 * zero_z.real();
-                    b2 = zero_z.real() * zero_z.real() + zero_z.imag() * zero_z.imag();
-
-                    a1 = -2 * pole_z.real();
-                    a2 = pole_z.real() * pole_z.real() + pole_z.imag() * pole_z.imag();
-                } else {
-                    // Single pole on the real axis
-                    _gain *= (1.0 - pole_z.real());
-                    b0 = 1;
-                    b1 = -zero_z.real();
-                    b2 = 0;
-                    a1 = -pole_z.real();
-                    a2 = 0;
-                }
-            } else {
-                _gain *= (1.0 - pole_z);
-                _gain *= (1.0 - std::conj(pole_z));
-                a1 = -2 * pole_z.real();
-                a2 = pole_z.real() * pole_z.real() + pole_z.imag() * pole_z.imag();
-            }
-
-            _cascade_filter.push_biquad_coefficients(b0, b1, b2, a1, a2);
+        if constexpr (PASS_TYPE == FilterPassType::LOW_PASS) {
+            _wn_warped = std::tan((M_PI * normalized_cutoff_frequency) / 2);
+        } else if constexpr (PASS_TYPE == FilterPassType::HIGH_PASS) {
+            _wn_warped = 1.0 / std::tan((M_PI * normalized_cutoff_frequency) / 2);
         }
 
-        const double k = _gain.real() / (1 << N);
-        _cascade_filter.set_gain(k);
+        for (int i = 0; i < N / 2; ++i) {
+            add_pole_zero_conjugates_pair(get_pole_zero_pairs_s_plane(i));
+        }
+        if constexpr (N & 1) {
+            add_pole_zero_single_pair(get_pole_zero_real_axis());
+        }
+
+        _cascade_filter.set_gain(1.0 / _gain);
     }
 
     static constexpr double INFINITY_VALUE = std::numeric_limits<double>::infinity();
 
     CascadeFilter<N, T> _cascade_filter;
+    double _gain = 1.0;
+
+private:
+    std::complex<double> transform(std::complex<double> s) {
+        if constexpr (PASS_TYPE == FilterPassType::LOW_PASS) {
+            if (s.real() != INFINITY_VALUE) {
+                return (1.0 + s) / (1.0 - s);
+            } else {
+                return {-1, 0};
+            }
+        } else if constexpr (PASS_TYPE == FilterPassType::HIGH_PASS) {
+            if (s.real() != INFINITY_VALUE) {
+                return -(1.0 + s) / (1.0 - s);
+            } else {
+                return {1, 0};
+            }
+        }
+    }
+
+    void add_biquad_coefficients(double b0, double b1, double b2, double a1, double a2) {
+        _gain *= (1 + b1 + b2) / (1 + a1 + a2);
+        _cascade_filter.push_biquad_coefficients(b0, b1, b2, a1, a2);
+    }
+
+    void add_pole_zero_conjugates_pair(const PoleZeroPair &pole_zero_pair) {
+        const std::complex<double> pole_s = _wn_warped * pole_zero_pair.pole;
+        const std::complex<double> zero_s = _wn_warped * pole_zero_pair.zero;
+
+        const std::complex<double> pole_z = transform(pole_s);
+        const std::complex<double> zero_z = transform(zero_s);
+
+        double b0 = 1.0;
+        double b1 = -2.0 * zero_z.real();
+        double b2 = zero_z.real() * zero_z.real() + zero_z.imag() * zero_z.imag();
+        double a1 = -2.0 * pole_z.real();
+        double a2 = pole_z.real() * pole_z.real() + pole_z.imag() * pole_z.imag();
+
+        add_biquad_coefficients(b0, b1, b2, a1, a2);
+    }
+
+    void add_pole_zero_single_pair(const PoleZeroPair &pole_zero_pair) {
+        const std::complex<double> pole_s = _wn_warped * pole_zero_pair.pole;
+        const std::complex<double> zero_s = _wn_warped * pole_zero_pair.zero;
+
+        const std::complex<double> pole_z = transform(pole_s);
+        const std::complex<double> zero_z = transform(zero_s);
+
+        double b0 = 1.0;
+        double b1 = -zero_z.real();
+        double b2 = 0;
+        double a1 = -pole_z.real();
+        double a2 = 0;
+
+        add_biquad_coefficients(b0, b1, b2, a1, a2);
+    }
+
     double _wn_warped = 0;  // Wn_warped over 2, technically
-    std::complex<double> _gain = 1.0;
 };
 
 }

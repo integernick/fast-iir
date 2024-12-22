@@ -1,30 +1,36 @@
 #pragma once
 
-#include <IIRFilter.h>
+#include "IIRFilter.h"
 
 namespace fast_iir {
-    template<size_t N = 2, typename T = double>
-    class Cheby1LPF : public IIRFilterLPF<N, T> {
+    template<size_t N = 2, typename T = double, FilterPassType PASS_TYPE = FilterPassType::LOW_PASS>
+    class IIRCheby1 : public IIRFilterLPF<N, T, PASS_TYPE> {
     public:
-        Cheby1LPF(double normalized_cutoff_frequency, double ripple_db) {
+        IIRCheby1(double normalized_cutoff_frequency, double ripple_db) {
             configure(normalized_cutoff_frequency, ripple_db);
         }
 
-        PoleZeroConjugatePair get_pole_zero_pairs_s_plane(unsigned int i) {
+        PoleZeroPair get_pole_zero_pairs_s_plane(unsigned int i) final {
             const double phi = (2 * i + 1) * _d_phi;
             const double sin_phi = std::sin(phi);
             const double cos_phi = std::cos(phi);
+
             const double pole_s_real = -_sinh_mu * sin_phi;
             const double pole_s_imag = _cosh_mu * cos_phi;
             return {{pole_s_real, pole_s_imag},
-                    {IIRFilterLPF<N, T>::INFINITY_VALUE, 0}};
+                    {IIRFilterLPF<N, T, PASS_TYPE>::INFINITY_VALUE, 0}};
+        }
+
+        PoleZeroPair get_pole_zero_real_axis() final {
+            return {_sinh_mu,
+                    IIRFilterLPF<N, T, PASS_TYPE>::INFINITY_VALUE};
         }
 
         void configure(double Wn, double ripple_db) {
             if constexpr (N & 1) {
-                IIRFilterLPF<N, T>::_gain = 1.0;
+                IIRFilterLPF<N, T, PASS_TYPE>::_gain = 1.0;
             } else {
-                IIRFilterLPF<N, T>::_gain = std::exp(-ripple_db / 20 * M_LN10);
+                IIRFilterLPF<N, T, PASS_TYPE>::_gain = std::exp(-ripple_db / 20 * M_LN10);
             }
 
             const double epsilon = std::sqrt(std::exp(ripple_db * 0.1 * M_LN10) - 1);
@@ -33,7 +39,7 @@ namespace fast_iir {
             _sinh_mu = std::sinh(mu);
             _cosh_mu = std::cosh(mu);
 
-            IIRFilterLPF<N, T>::configure_poles_zeros(Wn);
+            IIRFilterLPF<N, T, PASS_TYPE>::configure_poles_zeros(Wn);
         }
 
     private:

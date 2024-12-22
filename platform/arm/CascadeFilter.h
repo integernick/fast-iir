@@ -5,12 +5,11 @@
 
 #define CASCADE_FILTER_DEBUG    1
 #if CASCADE_FILTER_DEBUG > 0
-
 #include <iostream>
-
+#include <iomanip>
 #endif
 
-namespace fast_iir {
+namespace tiny_iir {
 
 template<unsigned int N, typename T = double>
 class CascadeFilter {
@@ -42,24 +41,24 @@ public:
         set_gain(gain);
     }
 
-    [[nodiscard]] T *get_coefficients() const {
+    [[nodiscard]] const T *get_coefficients() const {
         return _coefficients;
     }
 
 #if CASCADE_FILTER_DEBUG > 0
-
     void print_coefficients() const {
-        std::cout << "gain: " << _gain << std::endl;
+        std::cout << std::setprecision(15) << "gain: " << _gain << std::endl;
         for (int i = 0; i < NUMBER_OF_BIQUAD_BLOCKS; ++i) {
-            std::cout << "b" << i << "0: " << _coefficients[i * COEFFICIENTS_PER_BIQUAD_BLOCK]
-                      << " b" << i << "1: " << _coefficients[i * COEFFICIENTS_PER_BIQUAD_BLOCK + 1]
-                      << " b" << i << "2: " << _coefficients[i * COEFFICIENTS_PER_BIQUAD_BLOCK + 2]
-                      << " a" << i << "0: " << _coefficients[i * COEFFICIENTS_PER_BIQUAD_BLOCK + 3]
-                      << " a" << i << "1: " << _coefficients[i * COEFFICIENTS_PER_BIQUAD_BLOCK + 4]
+            std::cout << std::setprecision(15)
+                      << _coefficients[i * COEFFICIENTS_PER_BIQUAD_BLOCK]
+                      << ", " << _coefficients[i * COEFFICIENTS_PER_BIQUAD_BLOCK + 1]
+                      << ", " << _coefficients[i * COEFFICIENTS_PER_BIQUAD_BLOCK + 2]
+                      << ", 1"
+                      << ", " << _coefficients[i * COEFFICIENTS_PER_BIQUAD_BLOCK + 3]
+                      << ", " << _coefficients[i * COEFFICIENTS_PER_BIQUAD_BLOCK + 4] << ";"
                       << std::endl;
         }
     }
-
 #endif
 
     template<typename U>
@@ -118,11 +117,12 @@ public:
         }
     }
 
+    [[nodiscard]] T get_gain() const {
+        return _gain;
+    }
+
     void set_gain(T gain) {
         _gain = gain;
-#if CASCADE_FILTER_DEBUG > 0
-        std::cout << "set_gain: " << gain << std::endl;
-#endif
     }
 
     T process(T x) {
